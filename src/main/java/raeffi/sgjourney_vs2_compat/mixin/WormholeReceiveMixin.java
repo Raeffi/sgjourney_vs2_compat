@@ -52,20 +52,13 @@ public abstract class WormholeReceiveMixin
         BlockPos gateBlockPos = BlockPos.containing(gatePos.x(), gatePos.y(), gatePos.z());
         if (!VSCompatHelper.isOnShip(destinationLevel, gateBlockPos)) return;
 
-        // Get the gate's forward vector and convert both position and
-        // direction from ship-space to world-space
         Vec3 gateForwardShip = destinationStargate.getForward(destinationLevel.getServer());
         Vec3 gateForwardWorld = VSCompatHelper.shipToWorldDirection(
                 destinationLevel, gateBlockPos, gateForwardShip);
-
-        // Gate center in world-space
         Vec3 gateCenterWorld = VSCompatHelper.shipToWorldSpace(
                 destinationLevel, gateBlockPos, gatePos);
 
-        // Spawn exactly 1 block in front of the gate in world-space,
-        // ignoring whatever fromStargateCoords computed for position
-        Vec3 worldPosition = gateCenterWorld.add(gateForwardWorld);
-
+        Vec3 worldPosition  = gateCenterWorld.add(gateForwardWorld);
         Vec3 worldMomentum  = VSCompatHelper.shipToWorldDirection(
                 destinationLevel, gateBlockPos, destinationMomentum);
         Vec3 worldLookAngle = VSCompatHelper.shipToWorldDirection(
@@ -75,6 +68,50 @@ public abstract class WormholeReceiveMixin
                 traveler, worldPosition, worldMomentum, worldLookAngle);
         playWormholeSound(destinationLevel, result);
 
+        // Force client position sync for non-player entities.
+        // moveTo() sets server-side position but doesn't send packets —
+        // VS ships interfere with the normal entity tracker update so
+        // clients never see the entity until a relog without this.
+        forcePositionSync(destinationLevel, result);
+
         cir.setReturnValue(result);
+    }
+
+    private static void forcePositionSync(ServerLevel level, Entity entity)
+    {
+        if (entity == null) return;
+        if (entity instanceof net.minecraft.server.level.ServerPlayer) return;
+
+        try
+        {
+            // Send teleport packet to all tracking players
+            level.getChunkSource().broadcastAndSend(
+                    entity,
+                    new net.minecraft.network.protocol.game.ClientboundTeleportEntityPacket(entity)
+            );
+
+            // Force entity tracker refresh via reflection
+            var chunkMap = level.getChunkSource().chunkMap;
+
+            // f_140131_ is the SRG name for ChunkMap.entityMap
+            java.lang.reflect.Field entityMapField = chunkMap.getClass()
+                    .getDeclaredField("f_140131_");
+            entityMapField.setAccessible(true);
+            var entityMap = (it.unimi.dsi.fastutil.ints.Int2ObjectMap<?>)
+                    entityMapField.get(chunkMap);
+
+            Object trackedEntity = entityMap.get(entity.getId());
+            if (trackedEntity == null) return;
+
+            // m_140443_ is the SRG name for TrackedEntity.updatePlayers
+            java.lang.reflect.Method updatePlayers = trackedEntity.getClass()
+                    .getDeclaredMethod("m_140443_", java.util.List.class);
+            updatePlayers.setAccessible(true);
+            updatePlayers.invoke(trackedEntity, level.players());
+        }
+        catch (Exception e)
+        {
+            // Non-fatal - entity will sync on next tracker update
+        }
     }
 }

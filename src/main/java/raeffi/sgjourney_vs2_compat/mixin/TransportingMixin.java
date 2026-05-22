@@ -42,41 +42,55 @@ public class TransportingMixin
 
         if (!VSCompatHelper.isOnShip(level, transporterBlockPos)) return;
 
-        // Transform traveler's world-space position into ship-space
+        Vec3 ringCenterShip = initialTransporter.transportPos(server);
+        if (ringCenterShip == null) return;
+
+        // ── Range check ──────────────────────────────────────────────────────
+        // Use ship-space so detection works when the ship moves through a
+        // stationary entity or the entity is standing on the ship.
         Vec3 shipSpacePos = VSCompatHelper.worldToShipSpace(
                 level, transporterBlockPos, traveler.position());
-
-        // transportPos() is the center of the ring platform (where entities land),
-        // also in ship-space since it comes from a BlockPos
-        Vec3 ringCenter = initialTransporter.transportPos(server);
-        if (ringCenter == null) return;
-
-        Vec3 relativePosition = initialTransporter.toTransporterCoords(
-                server, shipSpacePos.subtract(ringCenter), true);
-
-        // Transform momentum and look angle — direction vectors need rotation only
-        Vec3 shipSpaceMomentum = VSCompatHelper.worldToShipDirection(
-                level, transporterBlockPos, traveler.getDeltaMovement());
-        Vec3 relativeMomentum = initialTransporter.toTransporterCoords(
-                server, shipSpaceMomentum, false);
-
-        Vec3 shipSpaceLook = VSCompatHelper.worldToShipDirection(
-                level, transporterBlockPos, traveler.getLookAngle());
-        Vec3 relativeLookAngle = initialTransporter.toTransporterCoords(
-                server, shipSpaceLook, false);
+        Vec3 shipSpaceOffset = shipSpacePos.subtract(ringCenterShip);
+        Vec3 relativePositionCheck = initialTransporter.toTransporterCoords(
+                server, shipSpaceOffset, true);
 
         double innerRadius = initialTransporter.getInnerRadius();
-        if (relativePosition.lengthSqr() <= innerRadius * innerRadius)
+        if (relativePositionCheck.lengthSqr() > innerRadius * innerRadius)
         {
-            if (receivingTransporter.receiveTraveler(
-                    server, connection, initialTransporter,
-                    traveler, relativePosition, relativeMomentum, relativeLookAngle))
-            {
-                cir.setReturnValue(true);
-                return;
-            }
+            cir.setReturnValue(false);
+            return;
         }
 
-        cir.setReturnValue(false);
+        // ── Teleport vectors ─────────────────────────────────────────────────
+        // Rings use identity basis so toTransporterCoords is a no-op —
+        // relative position is just a raw offset added to the receiver's
+        // world-space transportPos. We must use world-space here so the
+        // receiver (land or ship) gets a correct destination.
+        Vec3 ringCenterWorld = VSCompatHelper.shipToWorldSpace(
+                level, transporterBlockPos, ringCenterShip);
+        Vec3 worldOffset = traveler.position().subtract(ringCenterWorld);
+        Vec3 relativePosition = initialTransporter.toTransporterCoords(
+                server, worldOffset, true);
+
+        // Momentum and look angle are direction vectors — no translation needed,
+        // pass world-space directly since rings use identity basis
+        Vec3 relativeMomentum = initialTransporter.toTransporterCoords(
+                server, traveler.getDeltaMovement(), false);
+        Vec3 relativeLookAngle = initialTransporter.toTransporterCoords(
+                server, traveler.getLookAngle(), false);
+
+        if (receivingTransporter.receiveTraveler(server, connection, initialTransporter,
+                traveler, relativePosition, relativeMomentum, relativeLookAngle))
+        {
+//            // Always force sync when teleporting from a ship — the entity tracker
+//            // loses sync regardless of whether the destination is a ship or land.
+//            // Safe to fire even for land destinations, it's a no-op if nothing changed.
+//            ServerLevel destLevel = receivingTransporter.getLevel(server);
+//            if (destLevel != null)
+//                forcePositionSync(destLevel, traveler);
+//
+            cir.setReturnValue(true);
+            return;
+        }
     }
 }

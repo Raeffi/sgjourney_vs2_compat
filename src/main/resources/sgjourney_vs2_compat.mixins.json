@@ -6,7 +6,8 @@
   "mixins": [
     "WormholeMixin",
     "TransportingMixin",
-    "WormholeReceiveMixin"
+    "WormholeReceiveMixin",
+    "SGJourneyTransporterMixin"
   ],
   "injectors": {
     "defaultRequire": 1
