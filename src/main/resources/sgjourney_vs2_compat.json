@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "raeffi.sgjourney_vs2_compat.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "WormholeMixin",
+    "TransportingMixin",
+    "WormholeReceiveMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

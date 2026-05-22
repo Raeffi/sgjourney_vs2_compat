@@ -1,0 +1,22 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+logoFile="sgjourney_vs2_compat.png"
+
+[[dependencies.sgjourney_vs2_compat]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+
+[[mods]]
+modId="sgjourney_vs2_compat"
+version="1.0"
+displayName="Stargate Journey VS2 Compat"
+[[dependencies.sgjourney_vs2_compat]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.21)"
+ordering="NONE"
+side="BOTH"
