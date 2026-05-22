@@ -12,7 +12,7 @@ side="BOTH"
 
 [[mods]]
 modId="sgjourney_vs2_compat"
-version="1.0"
+version="1.0.2"
 displayName="Stargate Journey VS2 Compat"
 [[dependencies.sgjourney_vs2_compat]]
 modId="minecraft"
@@ -20,3 +20,6 @@ mandatory=true
 versionRange="[1.20.1,1.21)"
 ordering="NONE"
 side="BOTH"
+
+[[mixins]]
+config="sgjourney_vs2_compat.json"
