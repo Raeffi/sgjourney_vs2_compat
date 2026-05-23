@@ -65,14 +65,35 @@ public class SGJourneyTransporterMixin
         Transporting.receiveTraveler(level, self, traveler,
                 destinationPosition, destinationMomentum, destinationLookAngle);
 
+        // Snap client position immediately to prevent interpolation sliding.
         // moveTo() only updates server-side position — without this the client
         // interpolates from the old position to the new one over several ticks.
         // Players handle their own sync via teleportTo, only needed for others.
         if (!(traveler instanceof net.minecraft.server.level.ServerPlayer))
         {
+            final Entity finalTraveler = traveler;
+            final int entityId = traveler.getId();
+
+            // Fire immediately to prevent initial interpolation
             level.getChunkSource().broadcastAndSend(
-                    traveler,
+                    finalTraveler,
+                    new net.minecraft.network.protocol.game.ClientboundTeleportEntityPacket(finalTraveler)
             );
+
+            // Fire again after VS has sent its own position correction,
+            // overriding the glitch-back. 5 ticks gives VS physics thread
+            // enough time to process the entity on the ship.
+            level.getServer().tell(new net.minecraft.server.TickTask(
+                    level.getServer().getTickCount() + 5, () ->
+            {
+                Entity current = level.getEntity(entityId);
+                if (current == null || !current.isAlive()) return;
+
+                level.getChunkSource().broadcastAndSend(
+                        current,
+                        new net.minecraft.network.protocol.game.ClientboundTeleportEntityPacket(current)
+                );
+            }));
         }
 
         cir.setReturnValue(true);
