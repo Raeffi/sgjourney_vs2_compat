@@ -65,6 +65,16 @@ public class SGJourneyTransporterMixin
         Transporting.receiveTraveler(level, self, traveler,
                 destinationPosition, destinationMomentum, destinationLookAngle);
 
+        // moveTo() only updates server-side position — without this the client
+        // interpolates from the old position to the new one over several ticks.
+        // Players handle their own sync via teleportTo, only needed for others.
+        if (!(traveler instanceof net.minecraft.server.level.ServerPlayer))
+        {
+            level.getChunkSource().broadcastAndSend(
+                    traveler,
+            );
+        }
+
         cir.setReturnValue(true);
     }
 }
