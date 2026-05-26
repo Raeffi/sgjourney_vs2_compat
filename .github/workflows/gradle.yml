@@ -1,5 +1,5 @@
 name: build
-on: [ pull_request ]
+on: [ pull_request, workflow_dispatch ]
 
 jobs:
   build:
@@ -36,3 +36,4 @@ jobs:
         with:
           name: Artifacts
           path: build/libs/
+
