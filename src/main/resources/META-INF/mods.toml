@@ -12,7 +12,7 @@ side="BOTH"
 
 [[mods]]
 modId="sgjourney_vs2_compat"
-version="1.0.4"
+version="1.0.5"
 displayName="Stargate Journey VS2 Compat"
 [[dependencies.sgjourney_vs2_compat]]
 modId="minecraft"
