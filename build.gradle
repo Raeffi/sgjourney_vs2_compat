@@ -6,7 +6,7 @@ plugins {
 }
 
 //group = 'example'
-version = '1.0.5'
+version = '1.0.6'
 base {
     archivesName = 'sgjourney_vs2_compat'
 }

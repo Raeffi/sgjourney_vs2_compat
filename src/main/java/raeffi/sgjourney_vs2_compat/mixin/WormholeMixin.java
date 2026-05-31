@@ -47,22 +47,23 @@ public abstract class WormholeMixin
         if (!VSCompatHelper.isVSLoaded()) return;
 
         ServerLevel level = initialStargate.getLevel(server);
-        Vec3 gatePos = initialStargate.getPosition(server);
-        if (level == null || gatePos == null) return;
 
-        BlockPos gateBlockPos = BlockPos.containing(gatePos.x(), gatePos.y(), gatePos.z());
-        if (!VSCompatHelper.isOnShip(level, gateBlockPos)) return;
+        Vec3 gateShipPos = initialStargate.getPosition(server);
+        if (level == null || gateShipPos == null) return;
 
-        // Fix 2: Skip entities that just teleported through this gate
+        BlockPos gateShipBlockPos = BlockPos.containing(gateShipPos.x(), gateShipPos.y(), gateShipPos.z());
+        if (!VSCompatHelper.isOnShip(level, gateShipBlockPos)) return;
+
+        Vec3 gateWorldPos = VSCompatHelper.shipToWorldSpace(level, gateShipBlockPos, gateShipPos);
+
         long currentTime = level.getGameTime();
         Long lastTeleport = TELEPORT_COOLDOWN.get(traveler.getId());
         if (lastTeleport != null)
         {
             if (currentTime - lastTeleport < COOLDOWN_TICKS)
             {
-                // Still in cooldown — just update position and bail
-                Vec3 shipSpacePos = VSCompatHelper.worldToShipSpace(level, gateBlockPos, traveler.position());
-                Vec3 relPos = initialStargate.toStargateCoords(server, shipSpacePos.subtract(gatePos), true);
+                Vec3 relPos = toWorldSpaceStargateCoords(level, gateShipBlockPos, initialStargate, server,
+                        traveler.position().subtract(gateWorldPos), true);
                 entityLocations.put(traveler.getId(), relPos);
                 cir.setReturnValue(false);
                 return;
@@ -73,34 +74,37 @@ public abstract class WormholeMixin
             }
         }
 
-        // Regular passengers (e.g. riding a minecart) still can't enter
         if (traveler.isPassenger() && !VSCompatHelper.isRidingVSShip(traveler))
         {
-            Vec3 shipSpacePos = VSCompatHelper.worldToShipSpace(level, gateBlockPos, traveler.position());
-            entityLocations.put(traveler.getId(),
-                    initialStargate.toStargateCoords(server, shipSpacePos.subtract(gatePos), true));
+            Vec3 relPos = toWorldSpaceStargateCoords(level, gateShipBlockPos, initialStargate, server,
+                    traveler.position().subtract(gateWorldPos), true);
+            entityLocations.put(traveler.getId(), relPos);
             cir.setReturnValue(false);
             return;
         }
 
-        // Transform traveler position into ship-space
-        Vec3 shipSpacePos = VSCompatHelper.worldToShipSpace(level, gateBlockPos, traveler.position());
-        Vec3 relativePosition = initialStargate.toStargateCoords(server, shipSpacePos.subtract(gatePos), true);
+        Vec3 worldOffset  = traveler.position().subtract(gateWorldPos);
+        Vec3 centerOffset = traveler.getBoundingBox().getCenter().subtract(gateWorldPos);
+
+        Vec3 relativePosition = toWorldSpaceStargateCoords(
+                level, gateShipBlockPos, initialStargate, server, worldOffset, true);
         Vec3 oldRelativePos = this.entityLocations.get(traveler.getId());
 
-        // Fix 3: If first tick near the gate, estimate the previous position
-        // using the traveler's momentum so we don't miss fast-moving ships
         if (oldRelativePos == null)
         {
-            Vec3 relativeDelta = initialStargate.toStargateCoords(
-                    server, traveler.getDeltaMovement(), false);
-            oldRelativePos = relativePosition.subtract(relativeDelta);
+            // First tick we see this entity — store position and wait for next tick.
+            // getDeltaMovement() doesn't include walking velocity so we can't use it.
+            entityLocations.put(traveler.getId(), relativePosition);
+            cir.setReturnValue(false);
+            return;
         }
 
         Vec3 relativeMomentum = relativePosition.subtract(oldRelativePos);
 
-        boolean withinRadius = gatePos.distanceToSqr(shipSpacePos) <= Wormhole.INNER_RADIUS_SQR;
-        boolean crossedPlane = oldRelativePos.x() > 0 && relativePosition.x() < 0 && relativeMomentum.x() < 0;
+        boolean withinRadius = centerOffset.lengthSqr() <= Wormhole.INNER_RADIUS_SQR;
+        boolean crossedPlane = oldRelativePos.x() > 0
+                && relativePosition.x() < 0
+                && relativeMomentum.x() < 0;
 
         if (withinRadius && crossedPlane)
         {
@@ -111,32 +115,16 @@ public abstract class WormholeMixin
                             traveler instanceof Player player &&
                             (player.isCreative() || player.isSpectator())))
             {
-                // Force a fixed exit offset rather than clamping.
-                // The natural x value varies wildly depending on ship speed —
-                // a fast ship gives x = -2.0, a slow one gives x = -0.05.
-                // Forcing -0.5 always places the player half a block in front
-                // of the destination gate regardless of crossing speed.
-                Vec3 safeRelativePosition = new Vec3(
-                        -0.5,
-                        relativePosition.y(),
-                        relativePosition.z()
-                );
+                Vec3 safeRelativePosition = new Vec3(-0.5, relativePosition.y(), relativePosition.z());
 
-                // Derive exit look angle from the crossing direction rather than
-                // the player's actual look angle.
-                // When a ship sweeps through a stationary player, their look angle
-                // is unrelated to the gate — using it produces a reversed exit angle.
-                // relativeMomentum.x() is always negative here (crossing condition),
-                // so normalizing gives approx (-1, 0, 0) in gate-relative space.
-                // At the destination gate, fromStargateCoords with mirror=true flips
-                // this to +forward, meaning the player faces away from the gate. ✓
                 Vec3 relativeLookAngle;
                 if (relativeMomentum.length() > 0.001)
                     relativeLookAngle = relativeMomentum.normalize();
                 else
                     relativeLookAngle = new Vec3(-1, 0, 0);
 
-                if (!SGJourneyEvents.onWormholeTravel(server, initialStargate, destinationStargate, traveler, twoWayWormhole) &&
+                if (!SGJourneyEvents.onWormholeTravel(server, initialStargate, destinationStargate,
+                        traveler, twoWayWormhole) &&
                         destinationStargate.receiveTraveler(server, connection, initialStargate, traveler,
                                 safeRelativePosition, relativeMomentum, relativeLookAngle) != null)
                 {
@@ -154,5 +142,64 @@ public abstract class WormholeMixin
 
         entityLocations.put(traveler.getId(), relativePosition);
         cir.setReturnValue(false);
+    }
+
+    /**
+     * Equivalent to Stargate.toStargateCoords() but rotates the gate's basis vecto
+
+    /**
+     * Converts a world-space entity position into gate-local coordinates,
+     * correctly accounting for the ship's current rotation.
+     *
+     * The normal path (toStargateCoords) rotates using the gate's baked
+     * ship-local facing direction, which is wrong once the ship has rotated.
+     * Instead we:
+     *   1. Compute the world-space offset from the gate origin.
+     *   2. Rotate that offset from world space into ship space using the
+     *      ship's live world→ship transform.
+     *   3. Feed the now-ship-local offset into toStargateCoords, which then
+     *      applies the gate's own facing rotation — and those are consistent
+     *      because both are now in the same (ship-local) frame.
+     */
+    private Vec3 worldOffsetToGateLocal(
+            ServerLevel level,
+            BlockPos gateBlockPos,
+            Vec3 gateWorldPos,
+            Vec3 entityWorldPos,
+            MinecraftServer server,
+            Stargate initialStargate)
+    {
+        // Step 1: world-space offset
+        Vec3 worldOffset = entityWorldPos.subtract(gateWorldPos);
+
+        // Step 2: rotate into ship space (direction only — no translation)
+        Vec3 shipLocalOffset = VSCompatHelper.worldToShipDirection(level, gateBlockPos, worldOffset);
+
+        // Step 3: apply gate's own facing rotation (ship-local → gate-local)
+        return initialStargate.toStargateCoords(server, shipLocalOffset, true);
+    }
+
+    /**
+     * Equivalent to Stargate.toStargateCoords() but rotates the gate's basis vectors
+     * from ship-local space into world space first, so it works correctly at any
+     * ship rotation.
+     */
+    private Vec3 toWorldSpaceStargateCoords(ServerLevel level, BlockPos gateShipBlockPos,
+                                            Stargate gate, MinecraftServer server, Vec3 worldOffset, boolean scale)
+    {
+        Vec3 worldFwd   = VSCompatHelper.shipToWorldDirection(level, gateShipBlockPos, gate.getForward(server));
+        Vec3 worldUp    = VSCompatHelper.shipToWorldDirection(level, gateShipBlockPos, gate.getUp(server));
+        Vec3 worldRight = VSCompatHelper.shipToWorldDirection(level, gateShipBlockPos, gate.getRight(server));
+
+        double x = worldOffset.dot(worldFwd);
+        double y = worldOffset.dot(worldUp);
+        double z = worldOffset.dot(worldRight);
+
+        if (scale)
+        {
+            double r = gate.getInnerRadius();
+            return new Vec3(x, y / r, z / r);
+        }
+        return new Vec3(x, y, z);
     }
 }
