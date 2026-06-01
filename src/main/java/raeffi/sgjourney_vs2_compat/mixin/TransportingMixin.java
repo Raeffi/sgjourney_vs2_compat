@@ -1,6 +1,10 @@
 package raeffi.sgjourney_vs2_compat.mixin;
 
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import raeffi.sgjourney_vs2_compat.VSCompatHelper;
+import raeffi.sgjourney_vs2_compat.TransportHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -12,6 +16,8 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+import java.util.List;
 
 @Mixin(targets = "net.povstalec.sgjourney.common.sgjourney.Transporting", remap = false)
 public class TransportingMixin
@@ -41,6 +47,12 @@ public class TransportingMixin
                 transporterPos.x(), transporterPos.y(), transporterPos.z());
 
         if (!VSCompatHelper.isOnShip(level, transporterBlockPos)) return;
+
+        // Range check here only for ship senders — land handled by landRangeCheck
+        if (!TransportHelper.isWithinRange(server, initialTransporter, receivingTransporter)) {
+            cir.setReturnValue(false);
+            return;
+        }
 
         Vec3 ringCenterShip = initialTransporter.transportPos(server);
         if (ringCenterShip == null) return;
@@ -93,4 +105,5 @@ public class TransportingMixin
             return;
         }
     }
+
 }
